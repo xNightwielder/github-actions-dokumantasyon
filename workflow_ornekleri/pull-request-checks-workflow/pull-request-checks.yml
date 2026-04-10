@@ -1,0 +1,61 @@
+# Bu workflow openclaude'nin pull-request kontrol workflowudur.
+name: PR Checks # Workflow Adı
+
+on: # Workflow'un hangi durumlarda çalışacağı (pull request işlemlerinde ve main dalına push edildiği zaman çalışır)
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions: # Github Actions'un sadece kod deposunun içeriğini okumasına izin verir.
+  contents: read
+
+jobs: # Çalıştırılacak işler
+  smoke-and-tests: # İşin Adı
+    runs-on: ubuntu-latest # Bu işin Github'ın sağladığı en son versiyon Linux Ubuntu sunucusu üzerinde çalışacağını belirtir.
+
+    steps: # İş Adımları
+      - name: Check out repository # Kod dosyalarını sunucuya klonlar
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # Kod dosyalarını klonlama işlemini yapan actions'u belirtir. ÖNEMLİ NOT: Bu kısımda checkout versiyonu v4.2.2 kullanılmış fakat burada bunu commit SHA hash koduyla ifade etmiş. Hash koduyla ifade etmesi geliştiricinin hesabı hacklense bile kullanan sistemin etkilenmemesini sağlar.
+        with:
+          fetch-depth: 0 # Sadece en son commit'i değil, tüm git geçmiini indirir. Eski kodlarla yeni kodları karşılaştırmak için gereklidir.
+
+      - name: Set up Node.js # Node.js ortamımı kurar
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22 # 22.sürümünü kullanmasını söyler
+
+      - name: Set up Bun # Javascript Runtime olan Bun'ı kurar
+        uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+        with:
+          bun-version: 1.3.11 # 1.3.11 sürümünü kullanmasını söyler.
+
+      - name: Set up Python # Python kurar
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+        with:
+          python-version: "3.12" # 3.12 sürümünü kullanmasını söyler
+          cache: "pip" # Python paketlerini her seferinde baştan indirmek yerine önbelleğe alır.
+          cache-dependency-path: python/requirements.txt # Paket bağımlılıkları yolu
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile # Javascript/Type script bağımlılıklarını kurma komutunu çalıştırır
+
+      - name: Smoke check # Sistemin temel işlevlerinin çalışıp çalışmadığını kontrol eden ön testtir. Cihazın fişini taktığınızda duman çıkmıyorsa, teste geçebilirsiniz mantığı.
+        run: bun run smoke # bun run smoke komutunu çalıştırır
+
+      - name: Full unit test suite # Unit test
+        run: bun test --max-concurrency=1 # Ana birim testlerini çalıştırır. max-concurrency=1 parametresi testlerin sırayla çalışmasını zorunlu kılar.
+
+      - name: Install Python test dependencies # Python testleri için gerekli bağımlılıkları kurar
+        run: python -m pip install -r python/requirements.txt
+
+      - name: Python unit tests # Python kodları için yazılmış birim testlerini sessiz modda (-q) çalıştırır
+        run: python -m pytest -q python/tests
+
+      - name: Suspicious PR intent scan # Özel bir güvenlik taraması komutu
+        run: bun run security:pr-scan -- --base ${{ github.event.pull_request.base.sha || 'origin/main' }}
+      - name: Provider tests # Sağlayıcı testlerini çalıştırır
+        run: bun run test:provider
+
+      - name: Provider recommendation tests # Sağlayıcı öneri sisteminin testlerini çalıştırır.
+        run: npm run test:provider-recommendation"
